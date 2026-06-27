@@ -97,34 +97,82 @@ Transformations are configured native to Snowflake to optimize query execution a
 
 ---
 
-## 4. Production-Ready Enhancements
+## 4. Execution Guide
 
-### I. Logging & Observability
-We replaced print statements with the standard `logging` module to print formatted logs:
-* **Human-Readable Format**: A default clean console style for development (`%(asctime)s [%(levelname)s] %(name)s: %(message)s`).
-* **Structured Production Format**: A `--json-logs` CLI flag format that outputs line-delimited JSON objects to standard output. This makes logs directly parseable by logging daemons (like Fluentd, Logstash, or Datadog):
-  ```json
-  {"timestamp": "2026-06-27 20:40:17,122", "level": "INFO", "logger": "main", "message": "Starting Enterprise Data Integration Pipeline..."}
-  ```
+This section explains how to run the pipeline from end-to-end using either the local DuckDB database or a live Snowflake instance.
 
-### II. Error Handling & Boundaries
-* Added robust `try-except` blocks around file readers, SQL runner script execution, and DB drivers.
-* Detailed traceback context is printed using `exc_info=True` to speed up remote diagnostics while clean exceptions are re-raised to guarantee the scheduling orchestrator (like Airflow or Prefect) marks the job run as failed if an error occurs.
+### Prerequisites
 
-### III. Transient Error Resiliency (Retries)
-* Implemented a custom `@retry` decorator in `src/loaders/snowflake.py` supporting exponential backoff and randomized delay jitter.
-* Applied it to `SnowflakeEngine` network/connection entrypoints (`_connect`, `execute`, `fetch_df`, `load_df`) to handle transient database connectivity issues (e.g. gateways drops, transient timeouts) cleanly without aborting the entire job run immediately.
+1. Set up a Python virtual environment:
+   ```bash
+   python -m venv .venv
+   ```
+2. Activate the virtual environment:
+   * **Windows (PowerShell)**: `.venv\Scripts\Activate.ps1`
+   * **macOS / Linux**: `source .venv/bin/activate`
+3. Install required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
 ---
 
-## 5. Technical Discussion Q&A Preparation
+### Option A: Local Execution (DuckDB)
+
+Local execution runs the pipeline using an in-memory DuckDB instance to simulate Snowflake. It requires no database credentials.
+
+1. **Run the ETL Pipeline**:
+   ```bash
+   python main.py
+   ```
+   This will extract mock files, load them into staging schemas inside DuckDB, execute staging transformations, and compare results against the expected fixtures.
+2. **Run the Automated Test Suite**:
+   ```bash
+   pytest
+   ```
+
+---
+
+### Option B: Cloud Execution (Snowflake)
+
+Cloud execution runs the pipeline against a live Snowflake database warehouse.
+
+1. **Configure Environment Credentials**:
+   Provide connection details as environment variables.
+   
+   * **Windows (PowerShell)**:
+     ```powershell
+     $env:SNOWFLAKE_ACCOUNT="your_snowflake_account"
+     $env:SNOWFLAKE_USER="your_username"
+     $env:SNOWFLAKE_PASSWORD="your_password"
+     $env:SNOWFLAKE_ROLE="your_role"
+     $env:SNOWFLAKE_WAREHOUSE="your_warehouse"
+     ```
+   * **macOS / Linux**:
+     ```bash
+     export SNOWFLAKE_ACCOUNT="your_snowflake_account"
+     export SNOWFLAKE_USER="your_username"
+     export SNOWFLAKE_PASSWORD="your_password"
+     export SNOWFLAKE_ROLE="your_role"
+     export SNOWFLAKE_WAREHOUSE="your_warehouse"
+     ```
+2. **Run the ETL Pipeline**:
+   ```bash
+   python main.py --use-snowflake
+   ```
+   This command directs the pipeline engine to initialize connections, establish schemas (`DE_INTEGRATION.RAW` and `DE_INTEGRATION.ANALYTICS`), stage the dataframes using bulk `write_pandas`, run transformations, and generate facts and reject files.
+
+---
+
+## 5. Technical Discussion
+
 
 ### 1. How does the design satisfy idempotency, incremental loading, and data quality checks?
 * **Idempotency**: 
   * The sales fact tables are loaded using a SQL `MERGE` query matching on a generated `warehouse_transaction_id` (prefixed with `source_system` to ensure unique constraints). Repeated runs update changes in-place without adding duplicates.
   * For the rejects log, incoming transaction ids for the current batch are deleted from `SALES_REJECTS` before insertion, avoiding double logging of validation errors on subsequent runs.
 * **Incremental Loading**:
-  * The architecture stages raw batches, then performs `MERGE` actions downstream. Watermark controls can filter source files or source database tables by querying `max(checkout_timestamp)` from the target fact table.
+  * The architecture stages raw batches, then performs `MERGE` actions downstream. 
 * **Data Quality Checks**:
   * Performed native to the database during staging. Transactions with parsing issues (invalid JSON, missing SKU, unknown exchange rate, duplicate transaction IDs) are flagged with a specific `reject_reason` and loaded to the rejects log. Clean rows are written to the fact table.
 
@@ -134,7 +182,7 @@ We replaced print statements with the standard `logging` module to print formatt
 * Secrets are never hardcoded or committed to git, and credentials are not required for local development and test runs (which use DuckDB).
 
 ### 3. How would your approach change for 100 million rows instead of these CSVs?
-* **Ingestion**: We would avoid loading data in memory using Pandas dataframes. Instead, extractors would stream data in chunks or write directly to cloud storage (Amazon S3, Azure Blob, GCS) using bulk unload commands (like `pg_dump` or `bcp`).
+* **Ingestion**: We would avoid loading data in memory using Pandas dataframes. Instead, extractors would stream data in chunks or write directly to cloud storage (Amazon S3, Azure Blob, GCS).
 * **Loading**: We would upload files to an external cloud stage using Snowflake's `PUT` statement, then load them in parallel using optimized `COPY INTO` instructions.
 * **SQL Transformations**: View definitions would be materialized as transient or staging tables to prevent CPU spikes in staging query paths during warehouse runs.
 
