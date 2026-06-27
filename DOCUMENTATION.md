@@ -183,8 +183,8 @@ Cloud execution runs the pipeline against a live Snowflake database warehouse.
 
 ### 3. How would your approach change for 100 million rows instead of these CSVs?
 * **Ingestion**: We would avoid loading data in memory using Pandas dataframes. Instead, extractors would stream data in chunks or write directly to cloud storage (Amazon S3, Azure Blob, GCS).
-* **Loading**: We would upload files to an external cloud stage using Snowflake's `PUT` statement, then load them in parallel using optimized `COPY INTO` instructions.
-* **SQL Transformations**: View definitions would be materialized as transient or staging tables to prevent CPU spikes in staging query paths during warehouse runs.
+* **Loading**: We would upload files to an **external** cloud stage like S3 using cloud-native tools like `aws s3 cp` or similar cloud provider tools, then load them in parallel using optimized `COPY INTO` instructions.
+* **SQL Transformations**: View definitions would be materialized as transient or staging tables to prevent spikes in staging query paths during warehouse runs.
 
 ### 4. Why use an abstract `BaseExtractor` instead of just functions?
 * **Interface Guarantees**: Enforces a strict signature contract (`extract() -> pd.DataFrame`) across all extractors.
@@ -193,5 +193,6 @@ Cloud execution runs the pipeline against a live Snowflake database warehouse.
 
 ### 5. Snowflake Ingestion: Would you use row inserts, PUT/Stage/COPY INTO, Snowpipe, or external stages?
 * **Avoid Row-by-Row Inserts**: Highly inefficient on OLAP column-oriented databases that optimize for bulk micro-partitions.
-* **For Batch Pipelines at Scale (PUT/Stage/COPY INTO)**: The industry standard. Data is written to compressed files (like Parquet/CSV), uploaded to a secure stage, and imported into Snowflake.
+* **For Batch Pipelines at Scale (PUT / COPY INTO)**: The industry standard. Data is written to compressed files (like Parquet/CSV), uploaded to a stage, and imported into Snowflake.
+  * *Note*: The Snowflake `PUT` command is used specifically to upload files to **internal** stages. For **external** stages (e.g., S3, Google Cloud Storage, Azure Blob), you upload files using cloud-native utilities (such as `aws s3 cp` or client SDKs) rather than `PUT`, and then run the Snowflake `COPY INTO` command to load the data.
 * **For Continuous Streaming (Snowpipe)**: Listens to S3 bucket upload notifications (via SQS/SNS) to copy files in micro-batches immediately as they arrive, optimizing compute resource scheduling.
