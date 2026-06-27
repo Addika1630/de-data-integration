@@ -1,6 +1,7 @@
 pandas>=2.2
 duckdb>=1.0
 sqlalchemy>=2.0
-snowflake-connector-python>=3.12
+snowflake-connector-python[pandas]>=3.12
 snowflake-sqlalchemy>=1.6
 pytest>=8.0
+PyYAML>=6.0

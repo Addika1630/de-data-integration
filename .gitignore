@@ -4,3 +4,20 @@ __pycache__/
 venv/
 .venv
 .DS_Store
+
+# Testing and cache directories
+.pytest_cache/
+.cache/
+
+# Local run output directories
+data/output/
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
